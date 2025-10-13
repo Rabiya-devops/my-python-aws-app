@@ -1,17 +1,14 @@
 #!/bin/bash
-# Replace <YOUR_ECR_URI> with your actual AWS ECR URI (e.g., 123456789012.dkr.ecr.us-east-1.amazonaws.com/my-repo)
-IMAGE_NAME="<YOUR_ECR_URI>/my-python-app:latest"
+# Stop and remove any existing container
+CONTAINER_NAME="my-python-app-container"
+docker stop $CONTAINER_NAME
+docker rm $CONTAINER_NAME
 
-echo "Logging into ECR..."
-# Get ECR login credentials (requires AWS CLI and IAM permissions)
-# NOTE: The CodeDeploy agent runs as root, so this should work if the IAM role is correct.
-aws ecr get-login-password --region <YOUR_AWS_REGION> | docker login --username AWS --password-stdin <YOUR_ECR_URI>
+# The Docker Hub image name (replace with your Docker Hub username)
+DOCKER_IMAGE_NAME="<YOUR_DOCKERHUB_USERNAME>/my-python-app:latest"
 
-echo "Pulling image: $IMAGE_NAME"
-docker pull $IMAGE_NAME
+# Pull the latest image
+docker pull $DOCKER_IMAGE_NAME
 
-echo "Starting new container..."
-# Run the container in detached mode, mapping the host port 80 to container port 5000
-docker run -d -p 80:5000 --name my-app-container $IMAGE_NAME
-
-echo "Application is running."
+# Run the new container
+docker run -d --name $CONTAINER_NAME -p 80:5000 $DOCKER_IMAGE_NAME
