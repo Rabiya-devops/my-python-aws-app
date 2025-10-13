@@ -1,41 +1,42 @@
 version: 0.2
-
-# Environment variables for ECR and image tagging
-env:
-  variables:
-    AWS_ACCOUNT_ID: "<YOUR_AWS_ACCOUNT_ID>"
-    AWS_DEFAULT_REGION: "<YOUR_AWS_REGION>" # e.g., us-east-1
-    IMAGE_REPO_NAME: "my-python-app"
-    IMAGE_TAG: "latest"
-
 phases:
   pre_build:
     commands:
-      - echo Logging into Amazon ECR...
-      # ECR login command (modern way)
-      - ECR_URI=$AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com
-      - aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $ECR_URI
-  
+      - echo "Retrieving Docker Hub credentials from Parameter Store..."
+      # Retrieve username and password from AWS Parameter Store
+      - DOCKERHUB_USERNAME=$(aws ssm get-parameter --name "dockerhub-username" --with-decryption --query Parameter.Value --output text)
+      - DOCKERHUB_PASSWORD=$(aws ssm get-parameter --name "dockerhub-password" --with-decryption --query Parameter.Value --output text)
+      
+      # 1. Login to Docker Hub using the retrieved credentials
+      - echo "Logging in to Docker Hub..."
+      # Replace <YOUR_DOCKERHUB_USERNAME> with your actual username
+      - docker login -u $DOCKERHUB_USERNAME -p $DOCKERHUB_PASSWORD 
+      
+      # Define your full image path (replace with your Docker Hub username and image name)
+      - FULL_IMAGE_NAME=<YOUR_DOCKERHUB_USERNAME>/my-python-app
+      
   build:
     commands:
-      - echo Build started on `date`
-      - echo Building the Docker image...
-      # Build the image using the Dockerfile in the current directory
-      - docker build -t $IMAGE_REPO_NAME:$IMAGE_TAG .
-      - docker tag $IMAGE_REPO_NAME:$IMAGE_TAG $ECR_URI/$IMAGE_REPO_NAME:$IMAGE_TAG
-  
+      # 2. Build the Docker image
+      - echo "Building the Docker image..."
+      - docker build -t $FULL_IMAGE_NAME .
+      # 3. Tag the image
+      - docker tag $FULL_IMAGE_NAME:latest $FULL_IMAGE_NAME:$CODEBUILD_RESOLVED_SOURCE_VERSION
+      
   post_build:
     commands:
-      - echo Build completed on `date`
-      - echo Pushing the Docker image...
-      - docker push $ECR_URI/$IMAGE_REPO_NAME:$IMAGE_TAG
-      - echo Writing image definition file for CodeDeploy
-      # Create a file that CodeDeploy can read to know which image to pull
-      - printf '[{"name":"my-app-container-definition","imageUri":"%s"}]' $ECR_URI/$IMAGE_REPO_NAME:$IMAGE_TAG > imagedefinitions.json
+      # 4. Push images to Docker Hub
+      - echo "Pushing the Docker image to Docker Hub..."
+      - docker push $FULL_IMAGE_NAME:latest
+      - docker push $FULL_IMAGE_NAME:$CODEBUILD_RESOLVED_SOURCE_VERSION
+      
+      # 5. Create the image definition file for CodeDeploy
+      # This points CodeDeploy to the Docker Hub image
+      - printf '[{"name":"my-python-app-container","imageUri":"%s"}]' $FULL_IMAGE_NAME:$CODEBUILD_RESOLVED_SOURCE_VERSION > imagedefinitions.json
 
 artifacts:
   files:
     - appspec.yml
     - start_container.sh
     - stop_container.sh
-    - imagedefinitions.json # Important for ECS deployments
+    - imagedefinitions.json
