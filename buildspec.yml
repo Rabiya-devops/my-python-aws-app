@@ -1,0 +1,41 @@
+version: 0.2
+
+# Environment variables for ECR and image tagging
+env:
+  variables:
+    AWS_ACCOUNT_ID: "<YOUR_AWS_ACCOUNT_ID>"
+    AWS_DEFAULT_REGION: "<YOUR_AWS_REGION>" # e.g., us-east-1
+    IMAGE_REPO_NAME: "my-python-app"
+    IMAGE_TAG: "latest"
+
+phases:
+  pre_build:
+    commands:
+      - echo Logging into Amazon ECR...
+      # ECR login command (modern way)
+      - ECR_URI=$AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com
+      - aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $ECR_URI
+  
+  build:
+    commands:
+      - echo Build started on `date`
+      - echo Building the Docker image...
+      # Build the image using the Dockerfile in the current directory
+      - docker build -t $IMAGE_REPO_NAME:$IMAGE_TAG .
+      - docker tag $IMAGE_REPO_NAME:$IMAGE_TAG $ECR_URI/$IMAGE_REPO_NAME:$IMAGE_TAG
+  
+  post_build:
+    commands:
+      - echo Build completed on `date`
+      - echo Pushing the Docker image...
+      - docker push $ECR_URI/$IMAGE_REPO_NAME:$IMAGE_TAG
+      - echo Writing image definition file for CodeDeploy
+      # Create a file that CodeDeploy can read to know which image to pull
+      - printf '[{"name":"my-app-container-definition","imageUri":"%s"}]' $ECR_URI/$IMAGE_REPO_NAME:$IMAGE_TAG > imagedefinitions.json
+
+artifacts:
+  files:
+    - appspec.yml
+    - start_container.sh
+    - stop_container.sh
+    - imagedefinitions.json # Important for ECS deployments
