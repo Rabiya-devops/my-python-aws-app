@@ -1,14 +1,17 @@
 #!/bin/bash
-# Stop and remove any existing container
 CONTAINER_NAME="my-python-app-container"
-docker stop $CONTAINER_NAME
-docker rm $CONTAINER_NAME
 
-# The Docker Hub image name (replace with your Docker Hub username)
-DOCKER_IMAGE_NAME="<YOUR_DOCKERHUB_USERNAME>/my-python-app:latest"
+DOCKERHUB_USERNAME="Rabiya-devops"
+IMAGE_NAME="my-python-aws-app"
+DOCKER_IMAGE_PATH="$DOCKERHUB_USERNAME/$IMAGE_NAME:latest"
 
-# Pull the latest image
-docker pull $DOCKER_IMAGE_NAME
+# 2. Pull the latest image from Docker Hub
+echo "Pulling latest image: $DOCKER_IMAGE_PATH"
+docker pull $DOCKER_IMAGE_PATH
 
-# Run the new container
-docker run -d --name $CONTAINER_NAME -p 80:5000 $DOCKER_IMAGE_NAME
+# 3. Run the new container
+# -d: run in detached mode
+# -p 80:5000: map host port 80 to container port 5000
+# --name: assign a custom name
+echo "Starting new container..."
+docker run -d --name $CONTAINER_NAME -p 80:5000 $DOCKER_IMAGE_PATH
