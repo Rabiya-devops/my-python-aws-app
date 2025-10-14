@@ -2,48 +2,64 @@ version: 0.2
 
 # --- ENVIRONMENT VARIABLES (Pulling secrets from Parameter Store) ---
 env:
+  # IMPORTANT: Ensure these parameter names match exactly what you created in SSM
   parameter-store:
     DOCKER_REGISTRY_USERNAME: /myapp/docker-credentials/username
     DOCKER_REGISTRY_PASSWORD: /myapp/docker-credentials/password
-    DOCKER_REGISTRY_URL: /myapp/docker-registry/url
+    DOCKER_REGISTRY_URL: /myapp/docker-registry/url  # Should contain the value 'docker.io'
 
 phases:
+  # --- INSTALL PHASE ---
   install:
     runtime-versions:
       python: 3.11
-    commands:
-      - echo "Install phase - Python runtime 3.11 ready."
-
+      
+  # --- PRE-BUILD PHASE ---
   pre_build:
     commands:
+      # Install dependencies from the requirements.txt file at the root
       - echo "Installing Python dependencies..."
       - pip install -r requirements.txt
       - echo "Starting Docker build process."
 
+  # --- BUILD PHASE ---
   build:
     commands:
-      - echo "Logging in to Docker registry..."
+      # 1. Login to Docker Hub using the retrieved credentials
       - echo "$DOCKER_REGISTRY_PASSWORD" | docker login -u "$DOCKER_REGISTRY_USERNAME" --password-stdin "$DOCKER_REGISTRY_URL"
-      - export IMAGE_REPO_NAME="$DOCKER_REGISTRY_URL/$DOCKER_REGISTRY_USERNAME/simple-python-flask-app"
-      - export IMAGE_TAG="$IMAGE_REPO_NAME:$CODEBUILD_RESOLVED_SOURCE_VERSION"
-      - export IMAGE_TAG_LATEST="$IMAGE_REPO_NAME:latest"
-      - echo "Building Docker image with unique tag: $IMAGE_TAG"
-      - docker build -t "$IMAGE_TAG" .
-      - echo "Tagging image with 'latest'..."
-      - docker tag "$IMAGE_TAG" "$IMAGE_TAG_LATEST"
-      - echo "Pushing image to Docker Hub..."
-      - docker push "$IMAGE_TAG"
-      - docker push "$IMAGE_TAG_LATEST"
 
+      # 2. Define the image name variables
+      - IMAGE_REPO_NAME="$DOCKER_REGISTRY_URL/$DOCKER_REGISTRY_USERNAME/my-python-aws-app"
+      - IMAGE_TAG="$IMAGE_REPO_NAME:$CODEBUILD_RESOLVED_SOURCE_VERSION"
+      - IMAGE_TAG_LATEST="$IMAGE_REPO_NAME:latest"
+
+      # 3. Build the Docker image ('.' means use the Dockerfile at the root)
+      - echo "Building Docker image with tag: $IMAGE_TAG"
+      - docker build -t $IMAGE_TAG .
+
+      # 4. Tag the image with the 'latest' tag
+      - docker tag $IMAGE_TAG $IMAGE_TAG_LATEST
+
+      # 5. Push both images to Docker Hub
+      - echo "Pushing images to Docker Hub..."
+      - docker push $IMAGE_TAG
+      - docker push $IMAGE_TAG_LATEST
+
+  # --- POST-BUILD PHASE ---
   post_build:
     commands:
-      - echo "Creating imagedefinitions.json file..."
-      - printf '[{"name":"my-python-app-container","imageUri":"%s"}]' "$IMAGE_TAG" > imagedefinitions.json
-      - cat imagedefinitions.json
       - echo "Build and Push to Docker Hub completed successfully!"
+      
+      # 6. Create the imagedefinitions.json file for CodeDeploy
+      # Note the container name must match the name in your appspec.yml file!
+      - echo "Creating imagedefinitions.json file..."
+      - printf '[{"name":"my-python-app-container","imageUri":"%s"}]' $IMAGE_TAG > imagedefinitions.json
+      - cat imagedefinitions.json
 
+# --- ARTIFACTS ---
 artifacts:
   files:
+    # These files are passed to the Deploy stage
     - appspec.yml
     - start_container.sh
     - stop_container.sh
