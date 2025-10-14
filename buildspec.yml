@@ -1,42 +1,72 @@
+
+
 version: 0.2
+
+# --- ENVIRONMENT VARIABLES (Pulling secrets from Parameter Store) ---
+env:
+  parameter-store:
+    # Use your actual parameter names if they are different from these examples
+    DOCKER_REGISTRY_USERNAME: /myapp/docker-credentials/username
+    DOCKER_REGISTRY_PASSWORD: /myapp/docker-credentials/password
+    DOCKER_REGISTRY_URL: /myapp/docker-registry/url  # Should be 'docker.io' for Docker Hub
+
 phases:
+  # --- INSTALL PHASE ---
+  # AWS CodeBuild environment setup
+  install:
+    runtime-versions:
+      python: 3.11
+      # Note: Docker is pre-installed in standard CodeBuild images
+
+  # --- PRE-BUILD PHASE ---
   pre_build:
     commands:
-      - echo "Retrieving Docker Hub credentials from Parameter Store..."
-      # Retrieve username and password from AWS Parameter Store
-      - DOCKERHUB_USERNAME=$(aws ssm get-parameter --name "dockerhub-username" --with-decryption --query Parameter.Value --output text)
-      - DOCKERHUB_PASSWORD=$(aws ssm get-parameter --name "dockerhub-password" --with-decryption --query Parameter.Value --output text)
-      
-      # 1. Login to Docker Hub using the retrieved credentials
-      - echo "Logging in to Docker Hub..."
-      # Replace <YOUR_DOCKERHUB_USERNAME> with your actual username
-      - docker login -u $DOCKERHUB_USERNAME -p $DOCKERHUB_PASSWORD 
-      
-      # Define your full image path (replace with your Docker Hub username and image name)
-      - FULL_IMAGE_NAME=<YOUR_DOCKERHUB_USERNAME>/my-python-app
-      
+      # All files are at the root, so simply install requirements
+      - echo "Installing Python dependencies..."
+      - pip install -r requirements.txt
+      # Log the URL to verify it's docker.io
+      - echo "Attempting Docker login to $DOCKER_REGISTRY_URL"
+
+  # --- BUILD PHASE ---
   build:
     commands:
-      # 2. Build the Docker image
-      - echo "Building the Docker image..."
-      - docker build -t $FULL_IMAGE_NAME .
-      # 3. Tag the image
-      - docker tag $FULL_IMAGE_NAME:latest $FULL_IMAGE_NAME:$CODEBUILD_RESOLVED_SOURCE_VERSION
-      
+      # 1. Login to Docker Hub using credentials from Parameter Store
+      # The DOCKER_REGISTRY_URL for Docker Hub is typically 'docker.io'
+      # $DOCKER_REGISTRY_URL is often omitted for docker.io, but we include it for clarity
+      - echo "$DOCKER_REGISTRY_PASSWORD" | docker login -u "$DOCKER_REGISTRY_USERNAME" --password-stdin "$DOCKER_REGISTRY_URL"
+
+      # 2. Define the image name variable using the CodeBuild unique ID
+      # We use the CodeBuild ID to create a unique tag
+      - IMAGE_TAG=$DOCKER_REGISTRY_URL/$DOCKER_REGISTRY_USERNAME/simple-python-flask-app:$CODEBUILD_RESOLVED_SOURCE_VERSION
+
+      # 3. Build the Docker image ('.' means build from the Dockerfile in the current directory)
+      - echo "Building Docker image with tag: $IMAGE_TAG"
+      - docker build -t $IMAGE_TAG .
+
+      # 4. Create a 'latest' tag for convenience
+      - docker tag $IMAGE_TAG $DOCKER_REGISTRY_URL/$DOCKER_REGISTRY_USERNAME/simple-python-flask-app:latest
+
+      # 5. Push both the unique-tagged and 'latest' images to Docker Hub
+      - echo "Pushing image to Docker Hub..."
+      - docker push $IMAGE_TAG
+      - docker push $DOCKER_REGISTRY_URL/$DOCKER_REGISTRY_USERNAME/simple-python-flask-app:latest
+
+  # --- POST-BUILD PHASE ---
   post_build:
     commands:
-      # 4. Push images to Docker Hub
-      - echo "Pushing the Docker image to Docker Hub..."
-      - docker push $FULL_IMAGE_NAME:latest
-      - docker push $FULL_IMAGE_NAME:$CODEBUILD_RESOLVED_SOURCE_VERSION
+      - echo "Build and Push to Docker Hub completed successfully!"
       
-      # 5. Create the image definition file for CodeDeploy
-      # This points CodeDeploy to the Docker Hub image
-      - printf '[{"name":"my-python-app-container","imageUri":"%s"}]' $FULL_IMAGE_NAME:$CODEBUILD_RESOLVED_SOURCE_VERSION > imagedefinitions.json
+      # 6. Create the imagedefinitions.json file for CodeDeploy
+      # This file tells CodeDeploy which image to deploy
+      - printf '[{"name":"my-python-app-container","imageUri":"%s"}]' $IMAGE_TAG > imagedefinitions.json
+      - cat imagedefinitions.json
 
+# --- ARTIFACTS ---
 artifacts:
   files:
+    # These are the files CodeDeploy needs to perform the deployment
     - appspec.yml
     - start_container.sh
     - stop_container.sh
     - imagedefinitions.json
+  # All necessary files are at the root, so no need for base-directory
