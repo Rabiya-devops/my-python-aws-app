@@ -1,18 +1,12 @@
 version: 0.0
 os: linux
-files:
-  - source: /                # Copy everything from the CodeDeploy artifact
-    destination: /home/ec2-user/my-app  # To this location on the EC2 instance
-    
-hooks:
-  # 1. Stop the old application/container
-  ApplicationStop:
-    - location: stop_container.sh
-      timeout: 60
-      runas: root
 
-  # 2. Start the new application/container
-  ApplicationStart:
-    - location: start_container.sh
+hooks:
+  ApplicationStop:
+    - location: scripts/stop_container.sh
+      timeout: 300
+      runas: root
+  AfterInstall:
+    - location: scripts/start_container.sh
       timeout: 300
       runas: root
